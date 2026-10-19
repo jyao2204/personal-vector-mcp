@@ -16,8 +16,8 @@ No API key is needed, and no embedding or chat model is paid for: Claude Code is
 
 ## Requirements
 
-- Docker with at least 4 GB of memory available to containers.
-  The embedder alone uses about 3 GB once the model is loaded.
+- Docker with at least 6 GB of memory available to containers.
+  The embedder alone uses about 3 GB once the model is loaded and more while it embeds a batch.
 - [uv](https://docs.astral.sh/uv/) to run the host scripts.
 - [Claude Code](https://claude.com/claude-code) to ask questions through the MCP tool.
 
@@ -27,7 +27,7 @@ The embedder image is about 4 GB because the model is baked in at build time.
 ## Add your notes
 
 Put your notes in a `data/` folder at the repo root.
-The ingest script picks up every `*.md` and `*.txt` file in it, including subfolders, and splits each into chunks of at most 500 characters at paragraph, line, or word breaks.
+The ingest script picks up every `*.md` and `*.txt` file in it, including subfolders, and splits each into chunks of at most 1500 characters at paragraph, line, or word breaks.
 A frontmatter block at the top of a note is read for tags and a topic, as described under "Tag your notes", and is not chunked.
 Each search result names the file it came from, so descriptive filenames make better citations.
 
@@ -114,7 +114,7 @@ Inside compose, the MCP server gets `http://embedder:8080` and `http://qdrant:63
 `POST /v1/embeddings` takes `{"input": "text" or ["text", ...], "input_type": "document" or "query"}` and returns OpenAI-shaped embeddings.
 `input_type` defaults to `"document"`; `"query"` applies the model's query prompt, which improves retrieval for questions.
 Empty input returns 422, and inputs longer than 2048 tokens are truncated.
-Clients should send at most 64 texts per request.
+Clients should send at most 16 texts of up to 1500 characters per request; larger requests can exhaust the container's memory.
 `GET /health` reports the model and its dimension once it is loaded.
 
 For example: `curl -s localhost:8080/v1/embeddings -H 'Content-Type: application/json' -d '{"input": "hello", "input_type": "query"}'`.

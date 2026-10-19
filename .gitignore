@@ -6,3 +6,5 @@ qdrant_storage/
 
 data/
 docs/superpowers/
+.claude/settings.local.json
+.ruff_cache/
