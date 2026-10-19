@@ -1,0 +1,8 @@
+.venv/
+.env
+__pycache__/
+qdrant_storage/
+.DS_Store
+
+data/
+docs/superpowers/

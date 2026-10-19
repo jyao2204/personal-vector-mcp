@@ -1,0 +1,33 @@
+services:
+  qdrant:
+    image: qdrant/qdrant
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+
+  embedder:
+    build: ./embedder
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
+
+  mcp:
+    build: ./mcp
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      EMBED_URL: http://embedder:8080
+      QDRANT_URL: http://qdrant:6333
+      COLLECTION: practice_docs
+    depends_on:
+      embedder:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
