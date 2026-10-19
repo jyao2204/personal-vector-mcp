@@ -25,18 +25,28 @@ def hits(result):
 async def main():
     # mode="legacy" forces the initialize handshake, which is what Claude Code speaks.
     async with Client(URL, mode="legacy") as c:
-        tools = (await c.list_tools()).tools
-        assert [t.name for t in tools] == ["search_notes"], tools
-        assert "source" in tools[0].description and "the user" in tools[0].description, tools[0].description
-        props = tools[0].input_schema["properties"]
+        tools = {t.name: t for t in (await c.list_tools()).tools}
+        assert tools.keys() == {"search_notes", "list_tags"}, tools.keys()
+        search = tools["search_notes"]
+        assert "source" in search.description and "the user" in search.description, search.description
+        props = search.input_schema["properties"]
         assert "description" in props["query"] and "20" in props["k"]["description"], props
+        assert "list_tags" in props["tags"]["description"], props["tags"]
 
         # Works on anyone's notes: nothing below assumes what the collection holds or how big it is.
         top = hits(await c.call_tool("search_notes", {"query": "notes", "k": 20}))
         assert top, "collection is empty, run uv run ingest.py first"
-        assert {"text", "source", "score"} <= top[0].keys(), top[0]
+        assert {"text", "source", "score", "tags", "topic", "document_date", "date_ingested"} <= top[0].keys(), top[0]
         scores = [h["score"] for h in top]
         assert scores == sorted(scores, reverse=True), scores
+
+        # A tag filter only returns chunks carrying that tag, whatever its case, and an unknown tag returns nothing.
+        tags = hits(await c.call_tool("list_tags", {}))
+        assert all({"tag", "count"} <= t.keys() for t in tags), tags
+        for t in tags[:1]:
+            scoped = hits(await c.call_tool("search_notes", {"query": "notes", "k": 20, "tags": [t["tag"].upper()]}))
+            assert scoped and all(t["tag"] in h["tags"] for h in scoped), (t, scoped)
+        assert hits(await c.call_tool("search_notes", {"query": "notes", "tags": ["no such tag"]})) == []
 
         # Searching for a stored chunk's own text must bring back its file.
         probe = top[len(top) // 2]

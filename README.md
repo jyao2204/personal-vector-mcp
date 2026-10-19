@@ -7,7 +7,7 @@ No API key is needed, and no embedding or chat model is paid for: Claude Code is
 ## What's here
 
 - `embedder/` is a FastAPI service that serves Qwen3-Embedding-0.6B (1024 dimensions) over an OpenAI-style `/v1/embeddings` endpoint.
-- `mcp/` is an MCP server over streamable HTTP with one tool, `search_notes`.
+- `mcp/` is an MCP server over streamable HTTP with two tools, `search_notes` and `list_tags`.
 - `docker-compose.yml` runs Qdrant, the embedder, and the MCP server together.
 - `ingest.py` splits notes into chunks, embeds them, and stores them in Qdrant.
 - `query.py` searches the stored chunks from the command line.
@@ -28,6 +28,7 @@ The embedder image is about 4 GB because the model is baked in at build time.
 
 Put your notes in a `data/` folder at the repo root.
 The ingest script picks up every `*.md` and `*.txt` file in it, including subfolders, and splits each into chunks of at most 500 characters at paragraph, line, or word breaks.
+A frontmatter block at the top of a note is read for tags and a topic, as described under "Tag your notes", and is not chunked.
 Each search result names the file it came from, so descriptive filenames make better citations.
 
 `uv run ingest.py` embeds each note under `data/` that is not in `data/ingested/`, then moves it into `data/ingested/`, keeping its subfolder.
@@ -37,6 +38,29 @@ Edits made in place under `data/ingested/`, and files deleted from it, are only 
 `--rebuild` drops the collection and re-ingests every note, `data/ingested/` included.
 `make ingest` and `make ingest-rebuild` run the same two commands.
 If a run fails partway, the notes it finished are already in `data/ingested/` and the next run picks up the rest.
+
+## Tag your notes
+
+A note can start with a YAML frontmatter block, and the ingest script reads three optional fields from it:
+
+```yaml
+---
+tags: [cooking, food, korean cuisine]
+topic: Author James Jones shares fusion Asian American recipes he formed after his trip through Southeast Asia
+document_date: 2019-05-01
+---
+```
+
+`tags` is a list of keywords that search results can be narrowed to.
+They are normalised on the way in: lowercased, trimmed, inner whitespace collapsed to one space, and duplicates dropped, so `Korean  Cuisine` and `korean cuisine` are the same tag.
+`topic` is a one-sentence description of the whole note.
+It is embedded together with every chunk of the note, so a chunk is also found by what its document is about, while the stored text stays the chunk alone.
+`document_date` is when the note or its source was written, in any form YAML accepts.
+Other fields are ignored, and a note without frontmatter ingests as before.
+A frontmatter block that is not valid YAML stops the run with the file named, and the note stays in `data/` for a fix.
+
+Each stored chunk carries `tags`, `topic`, `document_date`, and `date_ingested`, the UTC time the ingest run stored it.
+Chunks stored before this existed carry none of these until `uv run ingest.py --rebuild`; searches still return them, with empty tags and null fields.
 
 ## Run
 
@@ -63,9 +87,13 @@ If you declined by mistake, run `claude mcp reset-project-choices` and start `cl
 `claude mcp list` shows `notes` as connected once the stack is up and the server is approved.
 Then ask Claude Code anything your notes cover, and it calls `search_notes` and cites the files it found.
 
-`search_notes` takes a `query` and an optional `k`, the number of chunks to return.
+`search_notes` takes a `query`, an optional `k`, the number of chunks to return, and an optional `tags` list.
 `k` defaults to 5 and is clamped to 1 to 20.
-It searches the `notes` collection that `ingest.py` builds.
+With `tags`, only chunks carrying at least one of those tags are searched, with the same normalisation as ingest, so case and spacing do not matter.
+Each result carries the chunk's text, source, score, tags, topic, document date, and ingest time.
+`list_tags` returns every tag in the collection with the number of chunks carrying it, so Claude only filters on tags that exist.
+Its description tells Claude to search unfiltered first and narrow by tag only when you name a domain or the first results are off-topic.
+Both tools search the `notes` collection that `ingest.py` builds.
 
 ## Configuration
 
