@@ -1,4 +1,4 @@
-# private-mcp
+# personal-vector-mcp
 
 Semantic search over your own markdown notes, run entirely on your machine and exposed to Claude Code as an MCP tool.
 A local Qwen3-Embedding-0.6B service turns notes into vectors, Qdrant stores them, and an MCP server lets Claude search them and answer with sources.

@@ -1,5 +1,5 @@
 [project]
-name = "private-mcp"
+name = "personal-vector-mcp"
 version = "0.1.0"
 description = "Semantic search over your own markdown notes, exposed to Claude Code as an MCP tool"
 readme = "README.md"
