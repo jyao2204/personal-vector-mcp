@@ -2,6 +2,7 @@ import os
 from typing import Annotated
 
 import httpx
+import uvicorn
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
@@ -52,13 +53,14 @@ if __name__ == "__main__":
     # Binding 0.0.0.0 inside the container turns off the SDK's automatic localhost Host check, so set it
     # explicitly: a page that rebinds its DNS to 127.0.0.1 must not reach the tool. A cloud deploy adds its
     # public hostname here alongside auth.
-    mcp.run(
-        transport="streamable-http",
+    app = mcp.streamable_http_app(
         host="0.0.0.0",
-        port=8000,
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
             allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
         ),
     )
+    # Not mcp.run(): it gives uvicorn no shutdown timeout, and a client's subscriptions/listen stream never ends,
+    # so SIGTERM closed the port but never exited and the restart policy never fired. 5s is under Docker's 10s kill.
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level=mcp.settings.log_level.lower(), timeout_graceful_shutdown=5)

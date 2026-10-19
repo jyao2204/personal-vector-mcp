@@ -6,6 +6,7 @@ dependencies = [
     "mcp>=2.3",
     "qdrant-client",
     "httpx",
+    "uvicorn>=0.54.0",
 ]
 
 [tool.uv]

@@ -425,6 +425,7 @@ dependencies = [
     { name = "httpx" },
     { name = "mcp" },
     { name = "qdrant-client" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -432,6 +433,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "mcp", specifier = ">=2.3" },
     { name = "qdrant-client" },
+    { name = "uvicorn", specifier = ">=0.54.0" },
 ]
 
 [[package]]
