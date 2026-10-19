@@ -28,8 +28,9 @@ qdrant = QdrantClient(url=os.environ.get("QDRANT_URL", "http://localhost:6333"))
 COLLECTION = os.environ.get("COLLECTION", "notes")
 DATA = Path("data")
 INGESTED = DATA / "ingested"
-# Splits at paragraph breaks first, then line breaks, then spaces, so chunks rarely end mid-sentence.
-splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+# Splits at paragraph breaks first, then line breaks, then spaces, so chunks rarely end mid-sentence. 1500 characters
+# keeps a recipe or a section with its heading in one chunk; the embedder truncates at 2048 tokens, about 6000.
+splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n?", re.DOTALL)
 
 

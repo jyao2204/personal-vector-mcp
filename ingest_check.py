@@ -38,15 +38,15 @@ qdrant.delete_collection(COLLECTION)
 with tempfile.TemporaryDirectory() as tmp:
     data = Path(tmp, "data")
     (data / "sub").mkdir(parents=True)
-    (data / "a.md").write_text("a" * 300 + "\n\n" + "b" * 300)
+    (data / "a.md").write_text("a" * 1000 + "\n\n" + "b" * 1000)
     (data / "sub" / "b.txt").write_text("bee")
     try:
         # A first run with no collection creates it, splits at the paragraph break, and moves each note under ingested/.
         ingest(tmp)
         assert files(data) == ["ingested/a.md", "ingested/sub/b.txt"], files(data)
         assert stored() == sorted([
-            ("data/ingested/a.md", "a" * 300),
-            ("data/ingested/a.md", "b" * 300),
+            ("data/ingested/a.md", "a" * 1000),
+            ("data/ingested/a.md", "b" * 1000),
             ("data/ingested/sub/b.txt", "bee"),
         ]), stored()
 

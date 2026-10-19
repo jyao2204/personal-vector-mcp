@@ -4,7 +4,9 @@ from typing import Literal
 import httpx
 
 MODEL = "Qwen/Qwen3-Embedding-0.6B"
-BATCH = 64
+# Texts per request. Attention memory grows with batch times sequence length squared, and 64 chunks of 1500
+# characters pushed the CPU embedder past Docker's memory limit and restarted it mid-ingest.
+BATCH = 16
 
 
 def _url(path: str) -> str:
