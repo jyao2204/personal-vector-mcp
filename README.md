@@ -50,7 +50,9 @@ Check the MCP server with `uv run mcp/check.py`, which prints `mcp ok`.
 It searches your notes without assuming what they contain, so run it after `ingest.py`.
 The Qdrant dashboard is at http://localhost:6333/dashboard.
 
-After a reboot, start the stack again with `docker compose up -d`.
+Each service restarts by itself when it crashes or Docker restarts, unless you stopped it with `docker compose stop`.
+After a reboot the stack comes back once Docker Desktop is running, so turn on its "Start Docker Desktop when you sign in" setting to make that automatic.
+While the embedder loads its model, for about a minute after Docker starts, `search_notes` reports that the embedder failed.
 
 ## Ask Claude Code
 
