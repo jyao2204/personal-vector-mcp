@@ -1,4 +1,5 @@
 import os
+
 import httpx
 
 EMBED_URL = os.environ.get("EMBED_URL", "http://localhost:8080")

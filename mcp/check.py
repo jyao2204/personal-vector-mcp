@@ -5,6 +5,7 @@ import asyncio
 import os
 
 import httpx
+
 from mcp import Client
 
 URL = os.environ.get("MCP_URL", "http://localhost:8000/mcp")
@@ -32,7 +33,7 @@ async def main():
 
         # Works on anyone's notes: nothing below assumes what the collection holds or how big it is.
         top = hits(await c.call_tool("search_notes", {"query": "notes", "k": 20}))
-        assert top, "collection is empty, run uv run phase1_ingest.py first"
+        assert top, "collection is empty, run uv run ingest.py first"
         assert {"text", "source", "score"} <= top[0].keys(), top[0]
         scores = [h["score"] for h in top]
         assert scores == sorted(scores, reverse=True), scores
@@ -51,10 +52,10 @@ async def main():
         e = await c.call_tool("search_notes", {"query": ""})
         assert e.is_error and "embedder" in e.content[0].text, e.content
 
-    # A page on another origin that rebinds its DNS to 127.0.0.1 must not reach the tool.
-    forged = httpx.post(URL, json=INIT, headers={"Host": "evil.example:8000", "Accept": "application/json, text/event-stream"})
-    assert 400 <= forged.status_code < 500, forged.status_code
-    print("mcp ok")
-
 
 asyncio.run(main())
+
+# A page on another origin that rebinds its DNS to 127.0.0.1 must not reach the tool.
+forged = httpx.post(URL, json=INIT, headers={"Host": "evil.example:8000", "Accept": "application/json, text/event-stream"})
+assert 400 <= forged.status_code < 500, forged.status_code
+print("mcp ok")

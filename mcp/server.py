@@ -10,7 +10,7 @@ from qdrant_client import QdrantClient
 
 EMBED_URL = os.environ.get("EMBED_URL", "http://localhost:8080")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
-COLLECTION = os.environ.get("COLLECTION", "practice_docs")
+COLLECTION = os.environ.get("COLLECTION", "notes")
 MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
 mcp = MCPServer("notes")

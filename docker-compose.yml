@@ -25,7 +25,7 @@ services:
     environment:
       EMBED_URL: http://embedder:8080
       QDRANT_URL: http://qdrant:6333
-      COLLECTION: practice_docs
+      COLLECTION: notes
     depends_on:
       embedder:
         condition: service_healthy

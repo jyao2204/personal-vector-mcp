@@ -9,10 +9,10 @@ No API key is needed, and no embedding or chat model is paid for: Claude Code is
 - `embedder/` is a FastAPI service that serves Qwen3-Embedding-0.6B (1024 dimensions) over an OpenAI-style `/v1/embeddings` endpoint.
 - `mcp/` is an MCP server over streamable HTTP with one tool, `search_notes`.
 - `docker-compose.yml` runs Qdrant, the embedder, and the MCP server together.
-- `phase1_ingest.py` and `phase1_query.py` chunk, embed, store, and search notes with plain HTTP and `qdrant-client`.
-- `phase2_ingest.py` does the same ingest through LangChain.
+- `ingest.py` splits notes into chunks, embeds them, and stores them in Qdrant.
+- `query.py` searches the stored chunks from the command line.
 - `embed_client.py` is the shared embedding client the host scripts use.
-- `smoke.py` and `mcp/check.py` are the runnable checks.
+- `smoke.py`, `ingest_check.py`, and `mcp/check.py` are the runnable checks.
 
 ## Requirements
 
@@ -27,19 +27,27 @@ The embedder image is about 4 GB because the model is baked in at build time.
 ## Add your notes
 
 Put your notes in a `data/` folder at the repo root.
-The ingest scripts pick up every `*.md` and `*.txt` file in it, including subfolders.
+The ingest script picks up every `*.md` and `*.txt` file in it, including subfolders, and splits each into chunks of at most 500 characters at paragraph, line, or word breaks.
 Each search result names the file it came from, so descriptive filenames make better citations.
+
+`uv run ingest.py` embeds each note under `data/` that is not in `data/ingested/`, then moves it into `data/ingested/`, keeping its subfolder.
+So each run embeds only the notes added since the last one.
+To update a note, drop the new version into `data/` again, and the next run replaces its old chunks and its old file.
+Edits made in place under `data/ingested/`, and files deleted from it, are only picked up by `uv run ingest.py --rebuild`.
+`--rebuild` drops the collection and re-ingests every note, `data/ingested/` included.
+If a run fails partway, the notes it finished are already in `data/ingested/` and the next run picks up the rest.
 
 ## Run
 
 Start Qdrant, the embedder, and the MCP server with `docker compose up --build -d`.
 The first build downloads the 1.2 GB embedding model once and bakes it into the image.
 Check the embedder with `uv run smoke.py`, which prints `smoke ok` and `client ok`.
-Build the collections with `uv run phase1_ingest.py` and `uv run phase2_ingest.py`.
-Each ingest rebuilds its collection from scratch and takes minutes on CPU, about ten for a thousand chunks.
-Query the raw collection with `uv run phase1_query.py "your question"`, which prints the five closest chunks with their scores and files.
+Ingest your notes with `uv run ingest.py`.
+Embedding takes minutes on CPU, about ten for a thousand chunks, so the first run is the slow one.
+Check the ingest itself with `uv run ingest_check.py`, which prints `ingest ok` and uses its own collection and temporary notes.
+Query the collection with `uv run query.py "your question"`, which prints the five closest chunks with their scores and files.
 Check the MCP server with `uv run mcp/check.py`, which prints `mcp ok`.
-It searches your notes without assuming what they contain, so run it after `phase1_ingest.py`.
+It searches your notes without assuming what they contain, so run it after `ingest.py`.
 The Qdrant dashboard is at http://localhost:6333/dashboard.
 
 After a reboot, start the stack again with `docker compose up -d`.
@@ -54,7 +62,7 @@ Then ask Claude Code anything your notes cover, and it calls `search_notes` and 
 
 `search_notes` takes a `query` and an optional `k`, the number of chunks to return.
 `k` defaults to 5 and is clamped to 1 to 20.
-It searches the `practice_docs` collection that `phase1_ingest.py` builds.
+It searches the `notes` collection that `ingest.py` builds.
 
 ## Configuration
 
@@ -64,7 +72,7 @@ Every service URL comes from the environment, and only the defaults mention loca
 |---|---|---|
 | `EMBED_URL` | `http://localhost:8080` | host scripts, MCP server |
 | `QDRANT_URL` | `http://localhost:6333` | host scripts, MCP server |
-| `COLLECTION` | `practice_docs` | MCP server |
+| `COLLECTION` | `notes` | `ingest.py`, `query.py`, MCP server |
 | `MCP_URL` | `http://localhost:8000/mcp` | `mcp/check.py` |
 
 The ingest and query scripts also load these from a `.env` file at the repo root.
