@@ -35,6 +35,7 @@ So each run embeds only the notes added since the last one.
 To update a note, drop the new version into `data/` again, and the next run replaces its old chunks and its old file.
 Edits made in place under `data/ingested/`, and files deleted from it, are only picked up by `uv run ingest.py --rebuild`.
 `--rebuild` drops the collection and re-ingests every note, `data/ingested/` included.
+`make ingest` and `make ingest-rebuild` run the same two commands.
 If a run fails partway, the notes it finished are already in `data/ingested/` and the next run picks up the rest.
 
 ## Run
