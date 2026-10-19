@@ -1,4 +1,3 @@
-import os
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
@@ -6,7 +5,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
-MODEL_ID = os.environ.get("MODEL_ID", "Qwen/Qwen3-Embedding-0.6B")
+# The Dockerfile bakes this model into the image and the container runs offline, so change both together.
+MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
 # ponytail: 2048-token cap keeps one CPU request bounded; raise it (model allows 32k) on a CUDA base image.
 MAX_SEQ_LENGTH = 2048
 
