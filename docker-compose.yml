@@ -39,6 +39,7 @@ services:
       EMBED_URL: http://embedder:8080
       QDRANT_URL: http://qdrant:6333
       COLLECTION: notes
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix:6006
     depends_on:
       embedder:
         condition: service_healthy
