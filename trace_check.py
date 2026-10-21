@@ -136,20 +136,25 @@ def file_trace(name):
 
 
 def check_ingest():
-    # Twenty 1,400-character chunks make two batches; the first must show up while the second is still embedding.
-    data, name = note("\n\n".join(f"paragraph {i} " + "deep modules hide complexity " * 50 for i in range(20)), "trace-check")
+    # Thirty-two 1,400-character chunks make two full batches; the first must show up while the second is still embedding.
+    data, name = note("\n\n".join(f"paragraph {i} " + "deep modules hide complexity " * 50 for i in range(32)), "trace-check")
     run = ingest(data)
-    # A 16-chunk batch takes 40 to 80 seconds on CPU.
-    wait_for(lambda ss: len(ss) == 1, timeout=180, name="embed batch 1/2", start_time=STARTED)
-    assert run.poll() is None, "batch 1 only reached Phoenix after ingest finished"
-    assert run.wait() == 0, run.stderr.read()
+    try:
+        # A 16-chunk batch takes 40 to 80 seconds on CPU.
+        wait_for(lambda ss: len(ss) == 1, timeout=180, name="embed batch 1/2", start_time=STARTED)
+        assert run.poll() is None, "batch 1 only reached Phoenix after ingest finished"
+    except BaseException:
+        run.kill()
+        raise
+    _, err = run.communicate()
+    assert run.returncode == 0, err
     f = file_trace(name)
     try:
         found = wait_for(lambda ss: len(ss) == 4, trace_id=f["context"]["trace_id"])
-        assert f["parent_id"] is None and f["span_kind"] == "CHAIN" and f["attributes"]["ingest.chunks"] == 20, f
+        assert f["parent_id"] is None and f["span_kind"] == "CHAIN" and f["attributes"]["ingest.chunks"] == 32, f
         steps = kids(found, f)
         assert steps.keys() == {"embed batch 1/2", "embed batch 2/2", "store in qdrant"}, steps.keys()
-        for key, position in (("embed batch 1/2", (1, 2, 16)), ("embed batch 2/2", (2, 2, 4))):
+        for key, position in (("embed batch 1/2", (1, 2, 16)), ("embed batch 2/2", (2, 2, 16))):
             b = steps[key]
             assert b["span_kind"] == "EMBEDDING", b
             assert (b["attributes"]["embed.batch"], b["attributes"]["embed.batches"], b["attributes"]["embed.chunks"]) == position, b
@@ -161,7 +166,8 @@ def check_ingest():
 def check_failed_ingest():
     data, name = note("---\ntags: [unclosed\n---\nbody\n", "trace-check-bad")
     run = ingest(data)
-    assert run.wait() != 0 and "malformed frontmatter" in run.stderr.read(), "malformed frontmatter was accepted"
+    _, err = run.communicate()
+    assert run.returncode != 0 and "malformed frontmatter" in err, "malformed frontmatter was accepted"
     f = file_trace(name)
     try:
         assert f["status_code"] == "ERROR", f
@@ -173,8 +179,8 @@ def timed_ingest(name_prefix, **env):
     data, name = note("A short note.", name_prefix)
     start = time.monotonic()
     run = ingest(data, **env)
-    code, err = run.wait(), run.stderr.read()
-    assert code == 0, err
+    _, err = run.communicate()
+    assert run.returncode == 0, err
     return name, time.monotonic() - start, err
 
 

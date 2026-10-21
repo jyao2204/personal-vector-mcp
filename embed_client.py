@@ -1,3 +1,4 @@
+import math
 import os
 from typing import Literal
 
@@ -24,7 +25,7 @@ def dim() -> int:
 
 def embed(texts: list[str], input_type: Literal["document", "query"] = "document") -> list[list[float]]:
     vectors = []
-    batches = -(-len(texts) // BATCH)
+    batches = math.ceil(len(texts) / BATCH)
     for n, i in enumerate(range(0, len(texts), BATCH), 1):
         batch = texts[i:i + BATCH]
         with tracer.start_as_current_span(f"embed batch {n}/{batches}", attributes={

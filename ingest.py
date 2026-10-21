@@ -79,45 +79,41 @@ def ingest_file(path):
         f"ingest {path.name}", attributes={"openinference.span.kind": "CHAIN", "input.value": str(path)}
     ) as span:
         try:
-            return _ingest_file(path, span)
+            # The source is where the file ends up, so a note dropped into data/ again replaces its old chunks.
+            dest = path if path.is_relative_to(INGESTED) else INGESTED / path.relative_to(DATA)
+            source = str(dest)
+            meta, body = split_frontmatter(path)
+            topic = meta.get("topic")
+            document_date = meta.get("document_date")
+            chunks = splitter.split_text(body)
+            span.set_attribute("ingest.chunks", len(chunks))
+            # The topic rides along in each chunk's vector, so a chunk is found by what its document is about too.
+            vectors = embed([f"{topic}\n\n{text}" if topic else text for text in chunks])
+            payload = {
+                "source": source,
+                "tags": normalize_tags(meta.get("tags")),
+                "topic": topic,
+                "document_date": None if document_date is None else str(document_date),
+                "date_ingested": datetime.now(UTC).isoformat(),
+            }
+            with tracer.start_as_current_span("store in qdrant"):
+                qdrant.delete(
+                    collection_name=COLLECTION,
+                    points_selector=Filter(must=[FieldCondition(key="source", match=MatchValue(value=source))]),
+                )
+                upsert_all([
+                    PointStruct(id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source}#{i}")), vector=vec, payload={"text": text, **payload})
+                    for i, (text, vec) in enumerate(zip(chunks, vectors))
+                ])
+            # Moved only once its chunks are stored, so a failed run leaves the rest in data/ for the next one.
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            path.replace(dest)
+            return len(chunks)
         except BaseException as e:
             # SystemExit from malformed frontmatter is not an Exception, so OpenTelemetry would otherwise leave
             # the failed file unmarked.
             span.set_status(StatusCode.ERROR, str(e))
             raise
-
-
-def _ingest_file(path, span):
-    # The source is where the file ends up, so a note dropped into data/ again replaces its old chunks.
-    dest = path if path.is_relative_to(INGESTED) else INGESTED / path.relative_to(DATA)
-    source = str(dest)
-    meta, body = split_frontmatter(path)
-    topic = meta.get("topic")
-    document_date = meta.get("document_date")
-    chunks = splitter.split_text(body)
-    span.set_attribute("ingest.chunks", len(chunks))
-    # The topic rides along in each chunk's vector, so a chunk is found by what its document is about too.
-    vectors = embed([f"{topic}\n\n{text}" if topic else text for text in chunks])
-    payload = {
-        "source": source,
-        "tags": normalize_tags(meta.get("tags")),
-        "topic": topic,
-        "document_date": None if document_date is None else str(document_date),
-        "date_ingested": datetime.now(UTC).isoformat(),
-    }
-    with tracer.start_as_current_span("store in qdrant"):
-        qdrant.delete(
-            collection_name=COLLECTION,
-            points_selector=Filter(must=[FieldCondition(key="source", match=MatchValue(value=source))]),
-        )
-        upsert_all([
-            PointStruct(id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source}#{i}")), vector=vec, payload={"text": text, **payload})
-            for i, (text, vec) in enumerate(zip(chunks, vectors))
-        ])
-    # Moved only once its chunks are stored, so a failed run leaves the rest in data/ for the next one.
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    path.replace(dest)
-    return len(chunks)
 
 parser = argparse.ArgumentParser(description="Embed new notes under data/ into Qdrant and move them into data/ingested/.")
 parser.add_argument("--rebuild", action="store_true", help="drop the collection and re-ingest every note, data/ingested/ included")
