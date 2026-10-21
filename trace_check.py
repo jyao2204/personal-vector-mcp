@@ -1,9 +1,10 @@
 # /// script
-# dependencies = ["mcp>=2.3", "httpx", "opentelemetry-sdk"]
+# dependencies = ["mcp>=2.3", "httpx", "httpx2", "opentelemetry-sdk"]
 # ///
 import asyncio
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -11,6 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import httpx2
+from mcp.client.streamable_http import streamable_http_client
 from opentelemetry.sdk.trace import TracerProvider
 
 from mcp import Client
@@ -29,6 +32,10 @@ STARTED = datetime.now(UTC).isoformat()
 # provider the client passes the current span's context through unchanged, and sends nothing when there is none,
 # like Claude Code without telemetry.
 tracer = TracerProvider().get_tracer("trace_check")
+COLLECTION = "trace_check"
+TMP = tempfile.TemporaryDirectory()  # removed at exit, with every note written under it
+# Traces whose ids the checks know before making them; every other trace the run makes carries NONCE in a span name or query.
+made_traces = set()
 
 
 def spans(**params):
@@ -46,8 +53,13 @@ def wait_for(done, timeout=30, **params):
     return found
 
 
-def delete_trace(trace_id):
-    httpx.delete(f"{PHOENIX_URL}/v1/traces/{trace_id}").raise_for_status()
+def delete_made_traces():
+    """Deletes every trace this run made, found or not by the check that made it, so a failed run leaves none behind."""
+    ours = (s for s in spans(start_time=STARTED) if NONCE in s["name"] or NONCE in str(s["attributes"].get("input.value", "")))
+    for trace_id in made_traces | {s["context"]["trace_id"] for s in ours}:
+        r = httpx.delete(f"{PHOENIX_URL}/v1/traces/{trace_id}")
+        if r.status_code != 404:
+            r.raise_for_status()
 
 
 def kids(found, parent):
@@ -57,6 +69,7 @@ def kids(found, parent):
 async def check_search():
     with tracer.start_as_current_span("trace_check") as root:
         trace_id = format(root.get_span_context().trace_id, "032x")
+        made_traces.add(trace_id)
         root_id = format(root.get_span_context().span_id, "016x")
         async with Client(MCP_URL, mode="legacy") as c:
             hits = (await c.call_tool("search_notes", {"query": "notes", "k": 20})).structured_content["result"]
@@ -64,31 +77,28 @@ async def check_search():
             assert (await c.call_tool("search_notes", {"query": ""})).is_error
             await c.call_tool("list_tags", {})
     found = wait_for(lambda ss: sum(s["name"].startswith("tools/call") for s in ss) == 4, trace_id=trace_id)
-    try:
-        # Tool calls and their steps only: no initialize, tools/list or HTTP-level spans.
-        assert {s["name"] for s in found} == {
-            "tools/call search_notes", "tools/call list_tags", "retrieve", "embed query", "qdrant query_points", "qdrant facet",
-        }, sorted(s["name"] for s in found)
-        # The calls joined this script's trace through the MCP request's _meta.
-        assert all(s["parent_id"] == root_id for s in found if s["name"].startswith("tools/call")), found
-        retrieves = {s["attributes"].get("input.value", ""): s for s in found if s["name"] == "retrieve"}
-        ok = retrieves["notes"]
-        a = ok["attributes"]
-        assert ok["span_kind"] == "RETRIEVER" and a["search_notes.k"] == 20, ok
-        for i, h in enumerate(hits):
-            assert a[f"retrieval.documents.{i}.document.id"] == h["source"], (i, a)
-            assert abs(a[f"retrieval.documents.{i}.document.score"] - h["score"]) < 1e-6, (i, a)
-            assert a[f"retrieval.documents.{i}.document.content"] == h["text"], i
-        assert f"retrieval.documents.{len(hits)}.document.id" not in a
-        steps = kids(found, ok)
-        assert steps.keys() == {"embed query", "qdrant query_points"}, steps.keys()
-        assert steps["embed query"]["span_kind"] == "EMBEDDING", steps["embed query"]
-        assert retrieves["notes by tag"]["attributes"]["search_notes.tags"] == ["no such tag"], retrieves["notes by tag"]
-        assert retrieves[""]["status_code"] == "ERROR", retrieves[""]
-        [tags_call] = [s for s in found if s["name"] == "tools/call list_tags"]
-        assert kids(found, tags_call).keys() == {"qdrant facet"}
-    finally:
-        delete_trace(trace_id)
+    # Tool calls and their steps only: no initialize, tools/list or HTTP-level spans.
+    assert {s["name"] for s in found} == {
+        "tools/call search_notes", "tools/call list_tags", "retrieve", "embed query", "qdrant query_points", "qdrant facet",
+    }, sorted(s["name"] for s in found)
+    # The calls joined this script's trace through the MCP request's _meta.
+    assert all(s["parent_id"] == root_id for s in found if s["name"].startswith("tools/call")), found
+    retrieves = {s["attributes"].get("input.value", ""): s for s in found if s["name"] == "retrieve"}
+    ok = retrieves["notes"]
+    a = ok["attributes"]
+    assert ok["span_kind"] == "RETRIEVER" and a["search_notes.k"] == 20, ok
+    for i, h in enumerate(hits):
+        assert a[f"retrieval.documents.{i}.document.id"] == h["source"], (i, a)
+        assert abs(a[f"retrieval.documents.{i}.document.score"] - h["score"]) < 1e-6, (i, a)
+        assert a[f"retrieval.documents.{i}.document.content"] == h["text"], i
+    assert f"retrieval.documents.{len(hits)}.document.id" not in a
+    steps = kids(found, ok)
+    assert steps.keys() == {"embed query", "qdrant query_points"}, steps.keys()
+    assert steps["embed query"]["span_kind"] == "EMBEDDING", steps["embed query"]
+    assert retrieves["notes by tag"]["attributes"]["search_notes.tags"] == ["no such tag"], retrieves["notes by tag"]
+    assert retrieves[""]["status_code"] == "ERROR", retrieves[""]
+    [tags_call] = [s for s in found if s["name"] == "tools/call list_tags"]
+    assert kids(found, tags_call).keys() == {"qdrant facet"}
 
 
 async def check_unparented_search():
@@ -98,18 +108,27 @@ async def check_unparented_search():
         await c.call_tool("search_notes", {"query": query, "k": 1})
     found = wait_for(lambda ss: any(s["attributes"].get("input.value") == query for s in ss), name="retrieve", start_time=STARTED)
     [r] = [s for s in found if s["attributes"].get("input.value") == query]
-    trace_id = r["context"]["trace_id"]
-    try:
-        [top] = [s for s in spans(trace_id=trace_id) if s["parent_id"] is None]
-        assert top["name"] == "tools/call search_notes", top
-        # Both sessions above opened with initialize, tools/list and a notification; none may reach Phoenix.
-        assert not spans(start_time=STARTED, name=["initialize", "tools/list", "notifications/initialized"])
-    finally:
-        delete_trace(trace_id)
+    [top] = [s for s in spans(trace_id=r["context"]["trace_id"]) if s["parent_id"] is None]
+    assert top["name"] == "tools/call search_notes", top
+    # The trace list shows the root span's input, so the query must be on it.
+    assert top["attributes"]["input.value"] == query, top
+    # Both sessions above opened with initialize, tools/list and a notification; none may reach Phoenix.
+    assert not spans(start_time=STARTED, name=["initialize", "tools/list", "notifications/initialized"])
 
 
-COLLECTION = "trace_check"
-TMP = tempfile.TemporaryDirectory()  # removed at exit, with every note written under it
+async def check_caller_header():
+    # The Python client only sends trace context in _meta; Claude Code sends it as a traceparent header, which the
+    # server's JoinCallerTrace must adopt. The ids are invented here, so only that header can put the span in this trace.
+    trace_id, span_id = uuid.uuid4().hex, uuid.uuid4().hex[:16]
+    made_traces.add(trace_id)
+    async with (
+        httpx2.AsyncClient(headers={"traceparent": f"00-{trace_id}-{span_id}-01"}) as http,
+        Client(streamable_http_client(MCP_URL, http_client=http), mode="legacy") as c,
+    ):
+        await c.call_tool("search_notes", {"query": "notes", "k": 1})
+    [call] = [s for s in wait_for(lambda ss: any(s["name"] == "tools/call search_notes" for s in ss), trace_id=trace_id)
+              if s["name"] == "tools/call search_notes"]
+    assert call["parent_id"] == span_id, call
 
 
 def note(text, prefix):
@@ -149,18 +168,15 @@ def check_ingest():
     _, err = run.communicate()
     assert run.returncode == 0, err
     f = file_trace(name)
-    try:
-        found = wait_for(lambda ss: len(ss) == 4, trace_id=f["context"]["trace_id"])
-        assert f["parent_id"] is None and f["span_kind"] == "CHAIN" and f["attributes"]["ingest.chunks"] == 32, f
-        steps = kids(found, f)
-        assert steps.keys() == {"embed batch 1/2", "embed batch 2/2", "store in qdrant"}, steps.keys()
-        for key, position in (("embed batch 1/2", (1, 2, 16)), ("embed batch 2/2", (2, 2, 16))):
-            b = steps[key]
-            assert b["span_kind"] == "EMBEDDING", b
-            assert (b["attributes"]["embed.batch"], b["attributes"]["embed.batches"], b["attributes"]["embed.chunks"]) == position, b
-            assert b["attributes"]["llm.token_count.prompt"] > 0, b
-    finally:
-        delete_trace(f["context"]["trace_id"])
+    found = wait_for(lambda ss: len(ss) == 4, trace_id=f["context"]["trace_id"])
+    assert f["parent_id"] is None and f["span_kind"] == "CHAIN" and f["attributes"]["ingest.chunks"] == 32, f
+    steps = kids(found, f)
+    assert steps.keys() == {"embed batch 1/2", "embed batch 2/2", "store in qdrant"}, steps.keys()
+    for key, position in (("embed batch 1/2", (1, 2, 16)), ("embed batch 2/2", (2, 2, 16))):
+        b = steps[key]
+        assert b["span_kind"] == "EMBEDDING", b
+        assert (b["attributes"]["embed.batch"], b["attributes"]["embed.batches"], b["attributes"]["embed.chunks"]) == position, b
+        assert b["attributes"]["llm.token_count.prompt"] > 0, b
 
 
 def check_failed_ingest():
@@ -169,10 +185,7 @@ def check_failed_ingest():
     _, err = run.communicate()
     assert run.returncode != 0 and "malformed frontmatter" in err, "malformed frontmatter was accepted"
     f = file_trace(name)
-    try:
-        assert f["status_code"] == "ERROR", f
-    finally:
-        delete_trace(f["context"]["trace_id"])
+    assert f["status_code"] == "ERROR", f
 
 
 def timed_ingest(name_prefix, **env):
@@ -186,7 +199,7 @@ def timed_ingest(name_prefix, **env):
 
 def check_ingest_without_phoenix():
     name, with_phoenix, _ = timed_ingest("trace-check-up")
-    delete_trace(file_trace(name)["context"]["trace_id"])
+    file_trace(name)  # its export must land before the final cleanup
     # Port 1 refuses connections, standing in for a stopped Phoenix.
     _, without, err = timed_ingest("trace-check-down", OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:1")
     assert "export" not in err.lower(), err
@@ -196,9 +209,13 @@ def check_ingest_without_phoenix():
 try:
     asyncio.run(check_search())
     asyncio.run(check_unparented_search())
+    asyncio.run(check_caller_header())
     check_ingest()
     check_failed_ingest()
     check_ingest_without_phoenix()
 finally:
+    if sys.exc_info()[0]:
+        time.sleep(6)  # a failed run may stop before the senders' batched exports (5 s) have landed
+    delete_made_traces()
     httpx.delete(f"{QDRANT_URL}/collections/{COLLECTION}")
 print("trace ok")
