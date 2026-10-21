@@ -8,7 +8,7 @@ No API key is needed, and no embedding or chat model is paid for: Claude Code is
 
 - `embedder/` is a FastAPI service that serves Qwen3-Embedding-0.6B (1024 dimensions) over an OpenAI-style `/v1/embeddings` endpoint.
 - `mcp/` is an MCP server over streamable HTTP with two tools, `search_notes` and `list_tags`.
-- `docker-compose.yml` runs Qdrant, the embedder, and the MCP server together.
+- `docker-compose.yml` runs Qdrant, the embedder, the MCP server, and Phoenix together.
 - `ingest.py` splits notes into chunks, embeds them, and stores them in Qdrant.
 - `query.py` searches the stored chunks from the command line.
 - `embed_client.py` is the shared embedding client the host scripts use.
@@ -66,7 +66,7 @@ Chunks stored before this existed carry none of these until `uv run ingest.py --
 
 ## Run
 
-Start Qdrant, the embedder, and the MCP server with `docker compose up --build -d`.
+Start Qdrant, the embedder, the MCP server, and Phoenix with `docker compose up --build -d`.
 The first build downloads the 1.2 GB embedding model once and bakes it into the image.
 Check the embedder with `uv run smoke.py`, which prints `smoke ok` and `client ok`.
 Ingest your notes with `uv run ingest.py`.
@@ -105,6 +105,7 @@ Phoenix runs with the rest of the stack and shows what the tools did.
 Open http://localhost:6006 and look in the `default` project.
 
 A search records the query, `k`, the tags, and the ranked chunks with their score, source, and text.
+A `list_tags` call is recorded too.
 An ingest records one trace per file, a step for each embedding batch with its position and token count, and the step that stores the chunks in Qdrant.
 
 `make claude` starts Claude Code with its own tracing turned on and sent to Phoenix.
@@ -134,7 +135,8 @@ Every service URL comes from the environment, and only the defaults mention loca
 | `PHOENIX_URL` | `http://localhost:6006` | `trace_check.py` |
 
 The ingest and query scripts also load these from a `.env` file at the repo root.
-Inside compose, the MCP server gets `http://embedder:8080` and `http://qdrant:6333` from `docker-compose.yml`.
+A shell-wide `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, as some people export for work, would send note text and prompts from `ingest.py` and `make claude` to that collector instead of Phoenix, so unset it or override it here.
+Inside compose, the MCP server gets `http://embedder:8080`, `http://qdrant:6333`, and `http://phoenix:6006` from `docker-compose.yml`.
 
 ## Embedding API
 
@@ -155,4 +157,6 @@ Qdrant, the embedder, the MCP server, and Phoenix have no authentication.
 Their ports (6333, 6334, 8080, 8000, 6006) are bound to `127.0.0.1`, so only this machine can reach them.
 The MCP server also rejects requests whose `Host` header is not localhost, which blocks DNS-rebinding attacks from web pages.
 Phoenix does not check the `Host` header, so a web page using DNS rebinding could read your traces, as it already could read Qdrant.
+Phoenix's API also accepts new spans and trace deletions without authentication, so such a page could add or delete traces as well.
+Phoenix makes no outside requests on its own, and its agent assistant and bash tool are turned off in `docker-compose.yml`.
 Add authentication before exposing any of them on a network.
