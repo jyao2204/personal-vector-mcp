@@ -12,12 +12,14 @@ No API key is needed, and no embedding or chat model is paid for: Claude Code is
 - `ingest.py` splits notes into chunks, embeds them, and stores them in Qdrant.
 - `query.py` searches the stored chunks from the command line.
 - `embed_client.py` is the shared embedding client the host scripts use.
-- `smoke.py`, `ingest_check.py`, and `mcp/check.py` are the runnable checks.
+- Phoenix, run by compose, shows traces of searches and ingests in a web UI.
+- `smoke.py`, `ingest_check.py`, `mcp/check.py`, and `trace_check.py` are the runnable checks.
 
 ## Requirements
 
 - Docker with at least 6 GB of memory available to containers.
   The embedder alone uses about 3 GB once the model is loaded and more while it embeds a batch.
+  Phoenix adds about 0.5 GB.
 - [uv](https://docs.astral.sh/uv/) to run the host scripts.
 - [Claude Code](https://claude.com/claude-code) to ask questions through the MCP tool.
 
@@ -73,6 +75,8 @@ Check the ingest itself with `uv run ingest_check.py`, which prints `ingest ok` 
 Query the collection with `uv run query.py "your question"`, which prints the five closest chunks with their scores and files.
 Check the MCP server with `uv run mcp/check.py`, which prints `mcp ok`.
 It searches your notes without assuming what they contain, so run it after `ingest.py`.
+Check the tracing with `uv run trace_check.py`, which prints `trace ok`.
+It needs Phoenix up, takes about a minute, and deletes the traces it makes.
 The Qdrant dashboard is at http://localhost:6333/dashboard.
 
 Each service restarts by itself when it crashes or Docker restarts, unless you stopped it with `docker compose stop`.
@@ -95,6 +99,27 @@ Each result carries the chunk's text, source, score, tags, topic, document date,
 Its description tells Claude to search unfiltered first and narrow by tag only when you name a domain or the first results are off-topic.
 Both tools search the `notes` collection that `ingest.py` builds.
 
+## Watch it in Phoenix
+
+Phoenix runs with the rest of the stack and shows what the tools did.
+Open http://localhost:6006 and look in the `default` project.
+
+A search records the query, `k`, the tags, and the ranked chunks with their score, source, and text.
+An ingest records one trace per file, a step for each embedding batch with its position and token count, and the step that stores the chunks in Qdrant.
+
+`make claude` starts Claude Code with its own tracing turned on and sent to Phoenix.
+Your question then appears at the top of the trace, with each search beneath it.
+A session started any other way still records its searches, each as its own trace, without the question.
+`make claude ARGS=--continue` passes options through to `claude`.
+Claude Code's tracing is a beta feature, so its step names may change.
+
+To watch an ingest live, open the Spans tab and replace its default filter `parent_id is None` with `span_kind == 'EMBEDDING'`.
+The default filter hides the batches until the whole file has finished.
+
+Traces are kept in `phoenix_storage/` as SQLite, forever by default.
+Set `PHOENIX_DEFAULT_RETENTION_POLICY_DAYS` on the `phoenix` service to cap that.
+They hold copies of your note text, and the traces from `make claude` also hold the email address and account IDs that Claude Code attaches.
+
 ## Configuration
 
 Every service URL comes from the environment, and only the defaults mention localhost.
@@ -105,6 +130,8 @@ Every service URL comes from the environment, and only the defaults mention loca
 | `QDRANT_URL` | `http://localhost:6333` | host scripts, MCP server |
 | `COLLECTION` | `notes` | `ingest.py`, `query.py`, MCP server |
 | `MCP_URL` | `http://localhost:8000/mcp` | `mcp/check.py` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:6006` | `ingest.py`, MCP server, `make claude` |
+| `PHOENIX_URL` | `http://localhost:6006` | `trace_check.py` |
 
 The ingest and query scripts also load these from a `.env` file at the repo root.
 Inside compose, the MCP server gets `http://embedder:8080` and `http://qdrant:6333` from `docker-compose.yml`.
@@ -124,7 +151,8 @@ For example: `curl -s localhost:8080/v1/embeddings -H 'Content-Type: application
 No script needs an API key or a network connection once the images are built and the Python dependencies are installed.
 Only Claude Code itself talks to Anthropic.
 
-Qdrant, the embedder, and the MCP server have no authentication.
-Their ports (6333, 6334, 8080, 8000) are bound to `127.0.0.1`, so only this machine can reach them.
+Qdrant, the embedder, the MCP server, and Phoenix have no authentication.
+Their ports (6333, 6334, 8080, 8000, 6006) are bound to `127.0.0.1`, so only this machine can reach them.
 The MCP server also rejects requests whose `Host` header is not localhost, which blocks DNS-rebinding attacks from web pages.
+Phoenix does not check the `Host` header, so a web page using DNS rebinding could read your traces, as it already could read Qdrant.
 Add authentication before exposing any of them on a network.
