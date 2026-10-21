@@ -114,6 +114,8 @@ def search_notes(
     attributes = {"openinference.span.kind": "RETRIEVER", "input.value": query, "search_notes.k": k}
     if wanted is not None:
         attributes["search_notes.tags"] = wanted
+    # The SDK's tools/call span is the trace's root without make claude, and Phoenix's trace list shows its input.value.
+    trace.get_current_span().set_attribute("input.value", query)
     with tracer.start_as_current_span("retrieve", attributes=attributes) as span:
         # ToolError text reaches the caller; any other exception is masked as a bare "Error executing tool".
         with tracer.start_as_current_span("embed query", attributes={"openinference.span.kind": "EMBEDDING", "embedding.model_name": MODEL}):
