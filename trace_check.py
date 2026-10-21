@@ -3,6 +3,8 @@
 # ///
 import asyncio
 import os
+import subprocess
+import tempfile
 import time
 import uuid
 from datetime import UTC, datetime
@@ -106,6 +108,91 @@ async def check_unparented_search():
         delete_trace(trace_id)
 
 
-asyncio.run(check_search())
-asyncio.run(check_unparented_search())
+COLLECTION = "trace_check"
+TMP = tempfile.TemporaryDirectory()  # removed at exit, with every note written under it
+
+
+def note(text, prefix):
+    """Writes a throwaway note under a fresh data/ folder and returns (folder, file name)."""
+    data = Path(tempfile.mkdtemp(dir=TMP.name), "data")
+    data.mkdir()
+    name = f"{prefix}-{NONCE}.md"
+    (data / name).write_text(text)
+    return data, name
+
+
+def ingest(data, **env):
+    # Runs ingest.py the way make ingest does, from the note's folder, into a throwaway collection.
+    return subprocess.Popen(
+        ["uv", "run", "--project", str(ROOT), "python", str(ROOT / "ingest.py")],
+        cwd=data.parent, env={**os.environ, "COLLECTION": COLLECTION, **env},
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+
+
+def file_trace(name):
+    [f] = wait_for(lambda ss: len(ss) == 1, name=f"ingest {name}")
+    return f
+
+
+def check_ingest():
+    # Twenty 1,400-character chunks make two batches; the first must show up while the second is still embedding.
+    data, name = note("\n\n".join(f"paragraph {i} " + "deep modules hide complexity " * 50 for i in range(20)), "trace-check")
+    run = ingest(data)
+    # A 16-chunk batch takes 40 to 80 seconds on CPU.
+    wait_for(lambda ss: len(ss) == 1, timeout=180, name="embed batch 1/2", start_time=STARTED)
+    assert run.poll() is None, "batch 1 only reached Phoenix after ingest finished"
+    assert run.wait() == 0, run.stderr.read()
+    f = file_trace(name)
+    try:
+        found = wait_for(lambda ss: len(ss) == 4, trace_id=f["context"]["trace_id"])
+        assert f["parent_id"] is None and f["span_kind"] == "CHAIN" and f["attributes"]["ingest.chunks"] == 20, f
+        steps = kids(found, f)
+        assert steps.keys() == {"embed batch 1/2", "embed batch 2/2", "store in qdrant"}, steps.keys()
+        for key, position in (("embed batch 1/2", (1, 2, 16)), ("embed batch 2/2", (2, 2, 4))):
+            b = steps[key]
+            assert b["span_kind"] == "EMBEDDING", b
+            assert (b["attributes"]["embed.batch"], b["attributes"]["embed.batches"], b["attributes"]["embed.chunks"]) == position, b
+            assert b["attributes"]["llm.token_count.prompt"] > 0, b
+    finally:
+        delete_trace(f["context"]["trace_id"])
+
+
+def check_failed_ingest():
+    data, name = note("---\ntags: [unclosed\n---\nbody\n", "trace-check-bad")
+    run = ingest(data)
+    assert run.wait() != 0 and "malformed frontmatter" in run.stderr.read(), "malformed frontmatter was accepted"
+    f = file_trace(name)
+    try:
+        assert f["status_code"] == "ERROR", f
+    finally:
+        delete_trace(f["context"]["trace_id"])
+
+
+def timed_ingest(name_prefix, **env):
+    data, name = note("A short note.", name_prefix)
+    start = time.monotonic()
+    run = ingest(data, **env)
+    code, err = run.wait(), run.stderr.read()
+    assert code == 0, err
+    return name, time.monotonic() - start, err
+
+
+def check_ingest_without_phoenix():
+    name, with_phoenix, _ = timed_ingest("trace-check-up")
+    delete_trace(file_trace(name)["context"]["trace_id"])
+    # Port 1 refuses connections, standing in for a stopped Phoenix.
+    _, without, err = timed_ingest("trace-check-down", OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:1")
+    assert "export" not in err.lower(), err
+    assert without < with_phoenix + 3, (without, with_phoenix)
+
+
+try:
+    asyncio.run(check_search())
+    asyncio.run(check_unparented_search())
+    check_ingest()
+    check_failed_ingest()
+    check_ingest_without_phoenix()
+finally:
+    httpx.delete(f"{QDRANT_URL}/collections/{COLLECTION}")
 print("trace ok")
