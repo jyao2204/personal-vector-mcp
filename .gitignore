@@ -2,6 +2,7 @@
 .env
 __pycache__/
 qdrant_storage/
+phoenix_storage/
 .DS_Store
 
 data/
