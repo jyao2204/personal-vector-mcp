@@ -38,7 +38,8 @@ def embed(texts: list[str], input_type: Literal["document", "query"] = "document
             r = httpx.post(_url("/v1/embeddings"), json={"input": batch, "model": MODEL, "input_type": input_type}, timeout=300)
             r.raise_for_status()
             body = r.json()
-            tokens = body["usage"]["prompt_tokens"]
-            span.set_attributes({"llm.token_count.prompt": tokens, "llm.token_count.total": tokens})
+            # usage is optional in the OpenAI shape, and a missing count must not fail the embedding.
+            if usage := body.get("usage"):
+                span.set_attributes({"llm.token_count.prompt": usage["prompt_tokens"], "llm.token_count.total": usage["prompt_tokens"]})
         vectors.extend(e["embedding"] for e in sorted(body["data"], key=lambda e: e["index"]))
     return vectors
