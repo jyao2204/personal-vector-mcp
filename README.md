@@ -134,8 +134,8 @@ Every service URL comes from the environment, and only the defaults mention loca
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:6006` | `ingest.py`, MCP server, `make claude` |
 | `PHOENIX_URL` | `http://localhost:6006` | `trace_check.py` |
 
-The ingest and query scripts also load these from a `.env` file at the repo root.
-A shell-wide `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, as some people export for work, would send note text and prompts from `ingest.py` and `make claude` to that collector instead of Phoenix, so unset it or override it here.
+The ingest and query scripts also load these from a `.env` file at the repo root, but a value set in the shell wins over it.
+A shell-wide `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, as some people export for work, would send note text and prompts from `ingest.py` and `make claude` to that collector instead of Phoenix, so unset it before running them.
 Inside compose, the MCP server gets `http://embedder:8080`, `http://qdrant:6333`, and `http://phoenix:6006` from `docker-compose.yml`.
 
 ## Embedding API
