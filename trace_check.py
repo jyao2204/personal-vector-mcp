@@ -214,8 +214,8 @@ try:
     check_failed_ingest()
     check_ingest_without_phoenix()
 finally:
+    httpx.delete(f"{QDRANT_URL}/collections/{COLLECTION}")  # first, so a Phoenix that is down cannot leave it behind
     if sys.exc_info()[0]:
-        time.sleep(6)  # a failed run may stop before the senders' batched exports (5 s) have landed
+        time.sleep(2)  # a failed run may stop before the senders' batched exports (every second) have landed
     delete_made_traces()
-    httpx.delete(f"{QDRANT_URL}/collections/{COLLECTION}")
 print("trace ok")
