@@ -46,7 +46,9 @@ async def main():
         scores = [h["score"] for h in top]
         assert scores == sorted(scores, reverse=True), scores
 
-        # A tag filter only returns chunks carrying that tag, whatever its case, and an unknown tag returns nothing.
+        # A tag filter only returns chunks carrying that tag, whatever its case, an unknown tag returns nothing, and
+        # blank tags filter nothing out.
+        assert hits(await c.call_tool("search_notes", {"query": "notes", "k": 20, "tags": ["", "  "]})) == top
         tags = hits(await c.call_tool("list_tags", {}))
         assert all({"tag", "count"} <= t.keys() for t in tags), tags
         for t in tags[:1]:

@@ -109,10 +109,10 @@ def search_notes(
 ) -> list[Hit]:
     """Semantic search over the user's notes and decision records. Use it for any question about the user's projects, decisions, integrations, or past work. Returns the k most relevant chunks, each with its source filename, its document's tags and topic, and a cosine similarity score, highest first. Cite the source filenames in the answer."""
     k = max(1, min(k, 20))
-    wanted = normalize_tags(tags) if tags else None
-    query_filter = Filter(must=[FieldCondition(key="tags", match=MatchAny(any=wanted))]) if wanted is not None else None
+    wanted = normalize_tags(tags or [])
+    query_filter = Filter(must=[FieldCondition(key="tags", match=MatchAny(any=wanted))]) if wanted else None
     attributes = {"openinference.span.kind": "RETRIEVER", "input.value": query, "search_notes.k": k}
-    if wanted is not None:
+    if wanted:
         attributes["search_notes.tags"] = wanted
     # The SDK's tools/call span is the trace's root without make claude, and Phoenix's trace list shows its input.value.
     trace.get_current_span().set_attribute("input.value", query)
