@@ -16,7 +16,8 @@ qdrant = QdrantClient(url=os.environ.get("QDRANT_URL", "http://localhost:6333"))
 
 
 def ingest(cwd, *args):
-    subprocess.run([sys.executable, INGEST, *args], cwd=cwd, env={**os.environ, "COLLECTION": COLLECTION}, check=True)
+    # OTEL_SDK_DISABLED: the throwaway notes would otherwise leave traces in Phoenix.
+    subprocess.run([sys.executable, INGEST, *args], cwd=cwd, env={**os.environ, "COLLECTION": COLLECTION, "OTEL_SDK_DISABLED": "true"}, check=True)
 
 
 def stored():

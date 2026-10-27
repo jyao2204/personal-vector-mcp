@@ -8,6 +8,22 @@ services:
     volumes:
       - ./qdrant_storage:/qdrant/storage
 
+  # Nothing depends_on phoenix: searches and ingest must keep working while it is down.
+  phoenix:
+    image: arizephoenix/phoenix:version-20.23.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6006:6006"
+    environment:
+      PHOENIX_WORKING_DIR: /phoenix_storage
+      # No tracking pixel, web fonts or binary downloads: trace data stays on this machine.
+      PHOENIX_ALLOW_EXTERNAL_RESOURCES: "false"
+      # The agent assistant can run bash on the server, and Phoenix has no authentication.
+      PHOENIX_DISABLE_AGENT_ASSISTANT: "true"
+      PHOENIX_AGENTS_DISABLE_BASH: "true"
+    volumes:
+      - ./phoenix_storage:/phoenix_storage
+
   embedder:
     build: ./embedder
     restart: unless-stopped
@@ -29,6 +45,7 @@ services:
       EMBED_URL: http://embedder:8080
       QDRANT_URL: http://qdrant:6333
       COLLECTION: notes
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix:6006
     depends_on:
       embedder:
         condition: service_healthy

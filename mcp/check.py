@@ -1,12 +1,18 @@
 # /// script
-# dependencies = ["mcp>=2.3", "httpx"]
+# dependencies = ["mcp>=2.3", "httpx", "opentelemetry-sdk"]
 # ///
 import asyncio
 import os
 
 import httpx
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.sampling import ALWAYS_OFF
 
 from mcp import Client
+
+# Every call runs inside an unsampled trace, so the server records none of them and Phoenix stays untouched.
+trace.set_tracer_provider(TracerProvider(sampler=ALWAYS_OFF))
 
 URL = os.environ.get("MCP_URL", "http://localhost:8000/mcp")
 INIT = {
@@ -40,7 +46,9 @@ async def main():
         scores = [h["score"] for h in top]
         assert scores == sorted(scores, reverse=True), scores
 
-        # A tag filter only returns chunks carrying that tag, whatever its case, and an unknown tag returns nothing.
+        # A tag filter only returns chunks carrying that tag, whatever its case, an unknown tag returns nothing, and
+        # blank tags filter nothing out.
+        assert hits(await c.call_tool("search_notes", {"query": "notes", "k": 20, "tags": ["", "  "]})) == top
         tags = hits(await c.call_tool("list_tags", {}))
         assert all({"tag", "count"} <= t.keys() for t in tags), tags
         for t in tags[:1]:
