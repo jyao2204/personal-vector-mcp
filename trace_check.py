@@ -2,6 +2,7 @@
 # dependencies = ["mcp>=2.3", "httpx", "httpx2", "opentelemetry-sdk"]
 # ///
 import asyncio
+import contextlib
 import os
 import subprocess
 import sys
@@ -214,7 +215,10 @@ try:
     check_failed_ingest()
     check_ingest_without_phoenix()
 finally:
-    httpx.delete(f"{QDRANT_URL}/collections/{COLLECTION}")  # first, so a Phoenix that is down cannot leave it behind
+    # First, so a Phoenix that is down cannot leave the collection behind. A Qdrant that is down has none to drop,
+    # and must not skip the trace cleanup either.
+    with contextlib.suppress(httpx.HTTPError):
+        httpx.delete(f"{QDRANT_URL}/collections/{COLLECTION}")
     if sys.exc_info()[0]:
         time.sleep(2)  # a failed run may stop before the senders' batched exports (every second) have landed
     delete_made_traces()
