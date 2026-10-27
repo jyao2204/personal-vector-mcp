@@ -214,8 +214,8 @@ try:
     check_failed_ingest()
     check_ingest_without_phoenix()
 finally:
-    # First, so a Phoenix that is down cannot leave the collection behind. A Qdrant that is down has none to drop,
-    # and must not skip the trace cleanup either.
+    # First, so a Phoenix that is down cannot leave the collection behind. A Qdrant that is down cannot drop it, and
+    # must not skip the trace cleanup either; the next run reuses the collection it keeps.
     with contextlib.suppress(httpx.HTTPError):
         httpx.delete(f"{QDRANT_URL}/collections/{COLLECTION}")
     if sys.exc_info()[0]:
