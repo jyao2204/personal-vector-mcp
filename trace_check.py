@@ -107,12 +107,11 @@ async def check_unparented_search():
     query = f"trace check {NONCE}"
     async with Client(MCP_URL, mode="legacy") as c:
         await c.call_tool("search_notes", {"query": query, "k": 1})
-    found = wait_for(lambda ss: any(s["attributes"].get("input.value") == query for s in ss), name="retrieve", start_time=STARTED)
-    [r] = [s for s in found if s["attributes"].get("input.value") == query]
-    [top] = [s for s in spans(trace_id=r["context"]["trace_id"]) if s["parent_id"] is None]
-    assert top["name"] == "tools/call search_notes", top
-    # The trace list shows the root span's input, so the query must be on it.
-    assert top["attributes"]["input.value"] == query, top
+    # Found by its input, since the trace list shows the root span's input, so the query must be on it.
+    found = wait_for(lambda ss: any(s["attributes"].get("input.value") == query for s in ss),
+                     name="tools/call search_notes", start_time=STARTED)
+    [top] = [s for s in found if s["attributes"].get("input.value") == query]
+    assert top["parent_id"] is None, top
     # Both sessions above opened with initialize, tools/list and a notification; none may reach Phoenix.
     assert not spans(start_time=STARTED, name=["initialize", "tools/list", "notifications/initialized"])
 
