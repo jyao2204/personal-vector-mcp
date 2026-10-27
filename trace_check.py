@@ -159,7 +159,7 @@ def check_ingest():
     data, name = note("\n\n".join(f"paragraph {i} " + "deep modules hide complexity " * 50 for i in range(32)), "trace-check")
     run = ingest(data)
     try:
-        # A 16-chunk batch takes 40 to 80 seconds on CPU.
+        # A 16-chunk batch takes about ten seconds on CPU.
         wait_for(lambda ss: len(ss) == 1, timeout=180, name="embed batch 1/2", start_time=STARTED)
         assert run.poll() is None, "batch 1 only reached Phoenix after ingest finished"
     except BaseException:

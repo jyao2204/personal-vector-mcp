@@ -76,7 +76,7 @@ Query the collection with `uv run query.py "your question"`, which prints the fi
 Check the MCP server with `uv run mcp/check.py`, which prints `mcp ok`.
 It searches your notes without assuming what they contain, so run it after `ingest.py`.
 Check the tracing with `uv run trace_check.py`, which prints `trace ok`.
-It needs Phoenix up, takes about a minute, and deletes the traces it makes.
+It needs Phoenix up, takes under a minute, and deletes the traces it makes.
 The Qdrant dashboard is at http://localhost:6333/dashboard.
 
 Each service restarts by itself when it crashes or Docker restarts, unless you stopped it with `docker compose stop`.
