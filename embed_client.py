@@ -1,4 +1,3 @@
-import math
 import os
 from typing import Literal
 
@@ -25,14 +24,14 @@ def dim() -> int:
 
 def embed(texts: list[str], input_type: Literal["document", "query"] = "document") -> list[list[float]]:
     vectors = []
-    batches = math.ceil(len(texts) / BATCH)
-    for n, i in enumerate(range(0, len(texts), BATCH), 1):
+    starts = range(0, len(texts), BATCH)
+    for n, i in enumerate(starts, 1):
         batch = texts[i:i + BATCH]
-        with tracer.start_as_current_span(f"embed batch {n}/{batches}", attributes={
+        with tracer.start_as_current_span(f"embed batch {n}/{len(starts)}", attributes={
             "openinference.span.kind": "EMBEDDING",
             "embedding.model_name": MODEL,
             "embed.batch": n,
-            "embed.batches": batches,
+            "embed.batches": len(starts),
             "embed.chunks": len(batch),
         }) as span:
             r = httpx.post(_url("/v1/embeddings"), json={"input": batch, "model": MODEL, "input_type": input_type}, timeout=300)
